@@ -20,7 +20,6 @@ PSP_HEAP_SIZE_KB(-1024);
 static unsigned int __attribute__((aligned(16))) list[262144];
 static int running = 1;
 
-/* ---------- زر HOME ---------- */
 static int exit_callback(int arg1, int arg2, void *common) {
     running = 0;
     return 0;
@@ -36,22 +35,41 @@ static void setup_callbacks(void) {
     if (thid >= 0) sceKernelStartThread(thid, 0, 0);
 }
 
-/* ---------- أرضية تجريبية (لنتأكد أن الـ3D يعمل) ---------- */
 typedef struct {
     unsigned int color;
     float x, y, z;
 } Vertex;
 
+/* أرضية رمادية زرقاء */
 static Vertex __attribute__((aligned(16))) floor_quad[6] = {
-    {0xFF1A2530, -10.0f, 0.0f,  2.0f},
-    {0xFF1A2530,  10.0f, 0.0f,  2.0f},
-    {0xFF0A1015,  10.0f, 0.0f, -20.0f},
-    {0xFF1A2530, -10.0f, 0.0f,  2.0f},
-    {0xFF0A1015,  10.0f, 0.0f, -20.0f},
-    {0xFF0A1015, -10.0f, 0.0f, -20.0f},
+    {0xFF804020, -5.0f, 0.0f,  5.0f},
+    {0xFF804020,  5.0f, 0.0f,  5.0f},
+    {0xFF402010,  5.0f, 0.0f, -15.0f},
+    {0xFF804020, -5.0f, 0.0f,  5.0f},
+    {0xFF402010,  5.0f, 0.0f, -15.0f},
+    {0xFF402010, -5.0f, 0.0f, -15.0f},
 };
 
-/* ---------- تهيئة الرسوميات ---------- */
+/* جدار في الخلف */
+static Vertex __attribute__((aligned(16))) back_wall[6] = {
+    {0xFF2040A0, -5.0f, 0.0f, -15.0f},
+    {0xFF2040A0,  5.0f, 0.0f, -15.0f},
+    {0xFF2040A0,  5.0f, 4.0f, -15.0f},
+    {0xFF2040A0, -5.0f, 0.0f, -15.0f},
+    {0xFF2040A0,  5.0f, 4.0f, -15.0f},
+    {0xFF2040A0, -5.0f, 4.0f, -15.0f},
+};
+
+/* مكعب صغير أحمر نراه في الأمام */
+static Vertex __attribute__((aligned(16))) box[6] = {
+    {0xFF0000FF, -1.0f, 0.0f, -6.0f},
+    {0xFF0000FF,  1.0f, 0.0f, -6.0f},
+    {0xFF0000FF,  1.0f, 2.0f, -6.0f},
+    {0xFF0000FF, -1.0f, 0.0f, -6.0f},
+    {0xFF0000FF,  1.0f, 2.0f, -6.0f},
+    {0xFF0000FF, -1.0f, 2.0f, -6.0f},
+};
+
 static void init_graphics(void) {
     sceGuInit();
     sceGuStart(GU_DIRECT, list);
@@ -75,21 +93,10 @@ static void init_graphics(void) {
 
 int main(void) {
     setup_callbacks();
-
-    /* 1) رفع تردد المعالج إلى 333MHz */
     scePowerSetClockFrequency(333, 333, 166);
-
-    pspDebugScreenInit();
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
     init_graphics();
-
-    /* متغيرات عدّاد الفريمات */
-    u64 last_tick, now_tick;
-    u32 tick_res = sceRtcGetTickResolution();
-    sceRtcGetCurrentTick(&last_tick);
-    int frames = 0, fps = 0;
-    int draw_offset = 0;   /* أي بافر نرسم عليه الآن */
 
     SceCtrlData pad;
 
@@ -99,53 +106,38 @@ int main(void) {
 
         sceGuStart(GU_DIRECT, list);
 
-        /* شاشة سوداء */
-        sceGuClearColor(0xFF000000);
+        sceGuClearColor(0xFF100808);
         sceGuClearDepth(0);
         sceGuClear(GU_COLOR_BUFFER_BIT | GU_DEPTH_BUFFER_BIT);
 
-        /* الكاميرا (منظور ثلاثي الأبعاد) */
         sceGumMatrixMode(GU_PROJECTION);
         sceGumLoadIdentity();
-        sceGumPerspective(70.0f, 16.0f / 9.0f, 0.2f, 100.0f);
+        sceGumPerspective(75.0f, 16.0f / 9.0f, 0.5f, 100.0f);
 
         sceGumMatrixMode(GU_VIEW);
         sceGumLoadIdentity();
-        ScePspFVector3 eye = {0.0f, -1.6f, 0.0f};  /* ارتفاع عيني اللاعب */
+        ScePspFVector3 eye = {0.0f, -1.7f, 0.0f};
         sceGumTranslate(&eye);
 
         sceGumMatrixMode(GU_MODEL);
         sceGumLoadIdentity();
 
-        /* ارسم الأرضية */
+        sceGuDisable(GU_TEXTURE_2D);
         sceGumDrawArray(GU_TRIANGLES,
                         GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
                         6, 0, floor_quad);
+        sceGumDrawArray(GU_TRIANGLES,
+                        GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                        6, 0, back_wall);
+        sceGumDrawArray(GU_TRIANGLES,
+                        GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                        6, 0, box);
 
         sceGuFinish();
         sceGuSync(0, 0);
 
-        /* عدّاد الفريمات */
-        frames++;
-        sceRtcGetCurrentTick(&now_tick);
-        if ((now_tick - last_tick) >= tick_res) {
-            fps = frames;
-            frames = 0;
-            last_tick = now_tick;
-        }
-
-        /* اكتب النص على البافر الحالي */
-        pspDebugScreenSetOffset(draw_offset);
-        pspDebugScreenSetXY(0, 0);
-        pspDebugScreenPrintf("FPS: %d   CPU: %dMHz   BUS: %dMHz   \n",
-                             fps,
-                             scePowerGetCpuClockFrequency(),
-                             scePowerGetBusClockFrequency());
-        pspDebugScreenPrintf("Free RAM: %d KB\n", (int)(sceKernelTotalFreeMemSize() / 1024));
-
         sceDisplayWaitVblankStart();
         sceGuSwapBuffers();
-        draw_offset = draw_offset ? 0 : FRAME_SIZE;
     }
 
     sceGuTerm();
